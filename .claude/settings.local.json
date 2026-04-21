@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(echo \"exit:$?\")",
+      "Bash(curl -s http://localhost:8000/api/collection/)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://localhost:8000/collection/)",
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+# Python
+**/__pycache__/
+*.pyc
+*.pyo
+backend/.venv/
+.env
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# Old / unused db
+backend/sports_cards.db
