@@ -18,7 +18,8 @@ type SortKey =
   | "purchase_price"
   | "current_median_price"
   | "unrealized_pnl"
-  | "unrealized_pnl_pct";
+  | "unrealized_pnl_pct"
+  | "last_sale_date";
 
 // ── Portfolio helpers ─────────────────────────────────────────────────────────
 
@@ -372,6 +373,7 @@ export default function CollectionPage() {
                     <Th col="current_median_price"   label="Mkt Median"               sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                     <Th col="unrealized_pnl"         label="P&L"                      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                     <Th col="unrealized_pnl_pct"     label="P&L%"                     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                    <Th col="last_sale_date"         label="Last Sale"                sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
@@ -476,6 +478,11 @@ export default function CollectionPage() {
                             <span className="text-slate-600">—</span>
                           )}
                         </td>
+                        <td className="px-4 py-3 text-right text-slate-400 text-xs whitespace-nowrap">
+                          {item.last_sale_date
+                            ? format(new Date(item.last_sale_date), "MMM d, yyyy")
+                            : <span className="text-slate-600">—</span>}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <div
                             className="flex items-center gap-2 justify-end"
@@ -509,7 +516,7 @@ export default function CollectionPage() {
                       {expandedId === item.id && (
                         <tr key={`chart-${item.id}`}>
                           <td
-                            colSpan={9}
+                            colSpan={10}
                             className="bg-slate-900 px-6 py-5 border-b border-slate-800"
                           >
                             <div className="space-y-3">

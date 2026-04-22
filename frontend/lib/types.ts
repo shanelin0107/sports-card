@@ -58,6 +58,7 @@ export interface CollectionItem {
   current_median_price?: number;
   unrealized_pnl?: number;
   unrealized_pnl_pct?: number;
+  last_sale_date?: string;
 }
 
 export interface CollectionItemCreate {
