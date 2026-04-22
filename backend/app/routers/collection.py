@@ -10,11 +10,12 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import CollectionItem, RawListing
 from ..schemas import CollectionItemCreate, CollectionItemOut, CollectionItemUpdate
+from ..services.ebay_scraper import _keywords_match
 
 router = APIRouter(prefix="/collection", tags=["collection"])
 
 # Minimum number of image-hash comps required before we trust the image-based median
-_IMAGE_COMP_MIN = 3
+_IMAGE_COMP_MIN = 1
 
 
 def _grade_to_condition(grade: Optional[str]) -> Optional[str]:
@@ -74,10 +75,12 @@ def _compute_current_price(
     condition = _grade_to_condition(grade)
     if condition:
         q = q.filter(RawListing.card_condition == condition)
-    recent = q.order_by(RawListing.sold_date.desc()).limit(20).all()
+    recent = q.order_by(RawListing.sold_date.desc()).limit(40).all()
+    # Apply same keyword filter used during scraping to avoid mixing similar cards
+    recent = [r for r in recent if _keywords_match(r.listing_title, search_query)]
     if not recent:
         return None
-    prices = [r.sold_price for r in recent]
+    prices = [r.sold_price for r in recent[:20]]
     return round(statistics.median(prices), 2)
 
 
@@ -105,8 +108,9 @@ def _compute_last_sale_price(
     condition = _grade_to_condition(grade)
     if condition:
         q = q.filter(RawListing.card_condition == condition)
-    row = q.order_by(RawListing.sold_date.desc()).first()
-    return row.sold_price if row else None
+    rows = q.order_by(RawListing.sold_date.desc()).limit(40).all()
+    rows = [r for r in rows if _keywords_match(r.listing_title, search_query)]
+    return rows[0].sold_price if rows else None
 
 
 def _enrich(item: CollectionItem, db: Session) -> CollectionItemOut:
