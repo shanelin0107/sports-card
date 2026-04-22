@@ -81,12 +81,12 @@ def _compute_current_price(
     return round(statistics.median(prices), 2)
 
 
-def _compute_last_sale_date(
+def _compute_last_sale_price(
     search_query: Optional[str],
     grade: Optional[str],
     db: Session,
     image_url: Optional[str] = None,
-) -> Optional[datetime]:
+) -> Optional[float]:
     img_hash = _ebay_image_hash(image_url)
     if img_hash:
         pattern = f"%/images/g/{img_hash}/%"
@@ -98,7 +98,7 @@ def _compute_last_sale_date(
                 .order_by(RawListing.sold_date.desc())
                 .first()
             )
-            return row.sold_date if row else None
+            return row.sold_price if row else None
     if not search_query:
         return None
     q = db.query(RawListing).filter(RawListing.search_query == search_query)
@@ -106,7 +106,7 @@ def _compute_last_sale_date(
     if condition:
         q = q.filter(RawListing.card_condition == condition)
     row = q.order_by(RawListing.sold_date.desc()).first()
-    return row.sold_date if row else None
+    return row.sold_price if row else None
 
 
 def _enrich(item: CollectionItem, db: Session) -> CollectionItemOut:
@@ -118,7 +118,7 @@ def _enrich(item: CollectionItem, db: Session) -> CollectionItemOut:
         pnl_pct = (current / item.purchase_price - 1) * 100
         out.unrealized_pnl = round(pnl, 2)
         out.unrealized_pnl_pct = round(pnl_pct, 2)
-    out.last_sale_date = _compute_last_sale_date(item.search_query, item.grade, db, item.image_url)
+    out.last_sale_price = _compute_last_sale_price(item.search_query, item.grade, db, item.image_url)
     # Auto-backfill image_url from raw_listings when collection item has none
     if not out.image_url and item.search_query:
         listing = (

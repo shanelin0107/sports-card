@@ -89,6 +89,6 @@ class CollectionItemOut(BaseModel):
     current_median_price: Optional[float] = None
     unrealized_pnl: Optional[float] = None
     unrealized_pnl_pct: Optional[float] = None
-    last_sale_date: Optional[datetime] = None
+    last_sale_price: Optional[float] = None
 
     model_config = {"from_attributes": True}

@@ -19,7 +19,7 @@ type SortKey =
   | "current_median_price"
   | "unrealized_pnl"
   | "unrealized_pnl_pct"
-  | "last_sale_date";
+  | "last_sale_price";
 
 // ── Portfolio helpers ─────────────────────────────────────────────────────────
 
@@ -373,7 +373,7 @@ export default function CollectionPage() {
                     <Th col="current_median_price"   label="Mkt Median"               sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                     <Th col="unrealized_pnl"         label="P&L"                      sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                     <Th col="unrealized_pnl_pct"     label="P&L%"                     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                    <Th col="last_sale_date"         label="Last Sale"                sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                    <Th col="last_sale_price"        label="Last Sale"                sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
@@ -478,9 +478,9 @@ export default function CollectionPage() {
                             <span className="text-slate-600">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-right text-slate-400 text-xs whitespace-nowrap">
-                          {item.last_sale_date
-                            ? format(new Date(item.last_sale_date), "MMM d, yyyy")
+                        <td className="px-4 py-3 text-right text-slate-300">
+                          {item.last_sale_price != null
+                            ? `$${item.last_sale_price.toFixed(2)}`
                             : <span className="text-slate-600">—</span>}
                         </td>
                         <td className="px-4 py-3 text-right">
