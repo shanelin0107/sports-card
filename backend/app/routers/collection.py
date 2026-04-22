@@ -45,30 +45,11 @@ def _compute_current_price(
     db: Session,
     image_url: Optional[str] = None,
 ) -> Optional[float]:
-    """Return median price from the best available comp set.
+    """Return median price from search_query comps (20 most recent matching listings).
 
-    Priority:
-    1. Image-hash comps — if the stored image URL yields >= _IMAGE_COMP_MIN
-       raw_listings matches, use those (most specific: same card photo).
-    2. search_query + condition comps — the 20 most recent matching listings
-       (original broad fallback).
+    Always uses the search_query path so the median is based on multiple data
+    points rather than a single image-hash match.
     """
-    # ── 1. Image-hash path ────────────────────────────────────────────────────
-    img_hash = _ebay_image_hash(image_url)
-    if img_hash:
-        pattern = f"%/images/g/{img_hash}/%"
-        image_comps = (
-            db.query(RawListing)
-            .filter(RawListing.image_url.like(pattern))
-            .order_by(RawListing.sold_date.desc())
-            .limit(40)
-            .all()
-        )
-        if len(image_comps) >= _IMAGE_COMP_MIN:
-            prices = [r.sold_price for r in image_comps]
-            return round(statistics.median(prices), 2)
-
-    # ── 2. search_query + condition fallback ──────────────────────────────────
     if not search_query:
         return None
     q = db.query(RawListing).filter(RawListing.search_query == search_query)
