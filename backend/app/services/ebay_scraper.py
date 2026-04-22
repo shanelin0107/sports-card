@@ -6,6 +6,7 @@ Restricted to Sports Trading Cards & Accessories (sacat=261328).
 
 import asyncio
 import logging
+import os
 import re
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -14,6 +15,8 @@ from urllib.parse import quote_plus
 from dateutil import parser as dateparser
 
 logger = logging.getLogger(__name__)
+
+SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY")
 
 # eBay category: Sports Trading Cards & Accessories
 SPORTS_CARDS_CATEGORY = "261328"
@@ -267,12 +270,66 @@ def _parse_items_from_html(html: str) -> List[Dict]:
 
 # ── Main scraper ──────────────────────────────────────────────────────────────
 
-async def scrape_completed_listings(query: str, max_pages: int = 5) -> List[Dict]:
-    """
-    Fetch eBay completed/sold listings using headless Chromium.
-    Only items with a confirmed "Sold" date are returned.
-    Limited to Sports Trading Cards & Accessories category.
-    """
+def _build_ebay_url(query: str, page_num: int) -> str:
+    encoded_query = quote_plus(query)
+    params = (
+        f"_nkw={encoded_query}"
+        f"&LH_Sold=1&LH_Complete=1"
+        f"&_sacat={SPORTS_CARDS_CATEGORY}"
+        f"&_sop=13&_ipg=60"
+        f"&_pgn={page_num}"
+    )
+    return f"https://www.ebay.com/sch/i.html?{params}"
+
+
+async def _scrape_via_scraperapi(query: str, max_pages: int) -> List[Dict]:
+    """Fetch eBay pages via ScraperAPI (uses residential IPs, bypasses bot detection)."""
+    import httpx
+
+    results: List[Dict] = []
+    seen_ids: set = set()
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        for page_num in range(1, max_pages + 1):
+            url = _build_ebay_url(query, page_num)
+            logger.info(f"ScraperAPI: fetching page {page_num}: {url}")
+            try:
+                resp = await client.get(
+                    "https://api.scraperapi.com/",
+                    params={"api_key": SCRAPERAPI_KEY, "url": url, "country_code": "us"},
+                )
+                resp.raise_for_status()
+                html = resp.text
+            except Exception as e:
+                logger.warning(f"ScraperAPI page {page_num} error: {e}")
+                break
+
+            raw_items = _parse_items_from_html(html)
+            logger.info(f"Page {page_num}: parsed {len(raw_items)} sold items")
+
+            page_items = [i for i in raw_items if _keywords_match(i["listing_title"], query)]
+            filtered_out = len(raw_items) - len(page_items)
+            if filtered_out:
+                logger.info(f"  Keyword filter removed {filtered_out} irrelevant items")
+
+            new_items = 0
+            for item in page_items:
+                lid = item["source_listing_id"]
+                if lid not in seen_ids:
+                    seen_ids.add(lid)
+                    results.append(item)
+                    new_items += 1
+
+            logger.info(f"Page {page_num}: {new_items} new items (total: {len(results)})")
+            if new_items == 0:
+                break
+
+    logger.info(f"ScraperAPI scrape complete: {len(results)} sold listings for '{query}'")
+    return results
+
+
+async def _scrape_via_playwright(query: str, max_pages: int) -> List[Dict]:
+    """Fetch eBay pages using headless Chromium (local dev only)."""
     from playwright.async_api import async_playwright
 
     results: List[Dict] = []
@@ -297,7 +354,6 @@ async def scrape_completed_listings(query: str, max_pages: int = 5) -> List[Dict
         )
         page = await ctx.new_page()
 
-        # Warm-up — get eBay cookies before hitting search
         try:
             await page.goto("https://www.ebay.com/", wait_until="domcontentloaded", timeout=20000)
             await asyncio.sleep(1.5)
@@ -308,17 +364,8 @@ async def scrape_completed_listings(query: str, max_pages: int = 5) -> List[Dict
             if page_num > 1:
                 await asyncio.sleep(2.0)
 
-            # Properly encode query for URL
-            encoded_query = quote_plus(query)
-            params = (
-                f"_nkw={encoded_query}"
-                f"&LH_Sold=1&LH_Complete=1"
-                f"&_sacat={SPORTS_CARDS_CATEGORY}"
-                f"&_sop=13&_ipg=60"
-                f"&_pgn={page_num}"
-            )
-            url = f"https://www.ebay.com/sch/i.html?{params}"
-            logger.info(f"Scraping page {page_num}: {url}")
+            url = _build_ebay_url(query, page_num)
+            logger.info(f"Playwright: scraping page {page_num}: {url}")
 
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=25000)
@@ -331,11 +378,7 @@ async def scrape_completed_listings(query: str, max_pages: int = 5) -> List[Dict
             raw_items = _parse_items_from_html(html)
             logger.info(f"Page {page_num}: parsed {len(raw_items)} sold items from HTML")
 
-            # Filter: specific words (player name / card ID) must all appear
-            page_items = [
-                item for item in raw_items
-                if _keywords_match(item["listing_title"], query)
-            ]
+            page_items = [i for i in raw_items if _keywords_match(i["listing_title"], query)]
             filtered_out = len(raw_items) - len(page_items)
             if filtered_out:
                 logger.info(f"  Keyword filter removed {filtered_out} irrelevant items")
@@ -354,5 +397,19 @@ async def scrape_completed_listings(query: str, max_pages: int = 5) -> List[Dict
 
         await browser.close()
 
-    logger.info(f"Scrape complete: {len(results)} total sold listings for '{query}'")
+    logger.info(f"Playwright scrape complete: {len(results)} sold listings for '{query}'")
     return results
+
+
+async def scrape_completed_listings(query: str, max_pages: int = 5) -> List[Dict]:
+    """
+    Fetch eBay completed/sold listings.
+    Uses ScraperAPI when SCRAPERAPI_KEY env var is set (production),
+    falls back to Playwright otherwise (local dev).
+    """
+    if SCRAPERAPI_KEY:
+        logger.info("Using ScraperAPI for scraping")
+        return await _scrape_via_scraperapi(query, max_pages)
+    else:
+        logger.info("Using Playwright for scraping (no SCRAPERAPI_KEY set)")
+        return await _scrape_via_playwright(query, max_pages)
