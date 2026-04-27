@@ -413,22 +413,25 @@ async def _scrape_via_ebay_api(query: str, max_pages: int) -> List[Dict]:
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         for page_num in range(1, max_pages + 1):
-            params = {
-                "OPERATION-NAME": "findCompletedItems",
-                "SERVICE-VERSION": "1.0.0",
-                "SECURITY-APPNAME": EBAY_APP_ID,
-                "RESPONSE-DATA-FORMAT": "JSON",
-                "keywords": query,
-                "categoryId": SPORTS_CARDS_CATEGORY,
-                "itemFilter(0).name": "SoldItemsOnly",
-                "itemFilter(0).value": "true",
-                "paginationInput.entriesPerPage": "100",
-                "paginationInput.pageNumber": str(page_num),
-                "sortOrder": "EndTimeSoonest",
-            }
+            # Build query string manually — httpx would URL-encode parentheses in
+            # param names like itemFilter(0).name, which breaks eBay's Finding API.
+            qs = "&".join([
+                "OPERATION-NAME=findCompletedItems",
+                "SERVICE-VERSION=1.0.0",
+                f"SECURITY-APPNAME={EBAY_APP_ID}",
+                "RESPONSE-DATA-FORMAT=JSON",
+                f"keywords={quote_plus(query)}",
+                f"categoryId={SPORTS_CARDS_CATEGORY}",
+                "itemFilter(0).name=SoldItemsOnly",
+                "itemFilter(0).value=true",
+                "paginationInput.entriesPerPage=100",
+                f"paginationInput.pageNumber={page_num}",
+                "sortOrder=EndTimeSoonest",
+            ])
+            url = f"{base_url}?{qs}"
 
             try:
-                resp = await client.get(base_url, params=params)
+                resp = await client.get(url)
                 resp.raise_for_status()
                 data = resp.json()
             except Exception as e:
