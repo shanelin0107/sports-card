@@ -17,6 +17,7 @@ from dateutil import parser as dateparser
 logger = logging.getLogger(__name__)
 
 SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY")
+EBAY_APP_ID = os.environ.get("EBAY_APP_ID")
 
 # eBay category: Sports Trading Cards & Accessories
 SPORTS_CARDS_CATEGORY = "261328"
@@ -401,15 +402,124 @@ async def _scrape_via_playwright(query: str, max_pages: int) -> List[Dict]:
     return results
 
 
+async def _scrape_via_ebay_api(query: str, max_pages: int) -> List[Dict]:
+    """Fetch eBay completed/sold listings via the official Finding API (free)."""
+    import httpx
+
+    results: List[Dict] = []
+    seen_ids: set = set()
+
+    base_url = "https://svcs.ebay.com/services/search/FindingService/v1"
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for page_num in range(1, max_pages + 1):
+            params = {
+                "OPERATION-NAME": "findCompletedItems",
+                "SERVICE-VERSION": "1.0.0",
+                "SECURITY-APPNAME": EBAY_APP_ID,
+                "RESPONSE-DATA-FORMAT": "JSON",
+                "keywords": query,
+                "categoryId": SPORTS_CARDS_CATEGORY,
+                "itemFilter(0).name": "SoldItemsOnly",
+                "itemFilter(0).value": "true",
+                "paginationInput.entriesPerPage": "100",
+                "paginationInput.pageNumber": str(page_num),
+                "sortOrder": "EndTimeSoonest",
+            }
+
+            try:
+                resp = await client.get(base_url, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as e:
+                logger.warning(f"eBay API page {page_num} error: {e}")
+                break
+
+            try:
+                response_wrapper = data["findCompletedItemsResponse"][0]
+                ack = response_wrapper.get("ack", [""])[0]
+                if ack not in ("Success", "Warning"):
+                    logger.warning(f"eBay API ack={ack}, stopping")
+                    break
+                items = response_wrapper.get("searchResult", [{}])[0].get("item", [])
+                total_pages = int(
+                    response_wrapper.get("paginationOutput", [{}])[0].get("totalPages", ["1"])[0]
+                )
+            except (KeyError, IndexError, ValueError) as e:
+                logger.warning(f"eBay API response parse error: {e}")
+                break
+
+            if not items:
+                break
+
+            new_items = 0
+            for item in items:
+                try:
+                    listing_id = item["itemId"][0]
+                    if listing_id in seen_ids:
+                        continue
+
+                    title = item["title"][0]
+                    if not _keywords_match(title, query):
+                        continue
+
+                    price_val = float(item["sellingStatus"][0]["currentPrice"][0]["__value__"])
+                    if not (0.01 <= price_val <= 999_999):
+                        continue
+
+                    end_time_str = item["listingInfo"][0]["endTime"][0]
+                    sold_date = datetime.fromisoformat(
+                        end_time_str.replace("Z", "+00:00")
+                    ).replace(tzinfo=None)
+
+                    listing_url = item.get("viewItemURL", [None])[0]
+                    if listing_url:
+                        listing_url = listing_url.split("?")[0]
+
+                    image_url = item.get("galleryURL", [None])[0]
+
+                    listing_type = item["listingInfo"][0].get("listingType", ["Unknown"])[0]
+                    sale_type = "auction" if listing_type == "Auction" else "buy_it_now"
+
+                    seen_ids.add(listing_id)
+                    results.append({
+                        "source": "ebay",
+                        "source_listing_id": listing_id,
+                        "listing_title": title,
+                        "sold_price": price_val,
+                        "currency": "USD",
+                        "sold_date": sold_date,
+                        "listing_url": listing_url,
+                        "image_url": image_url,
+                        "sale_type": sale_type,
+                        "card_condition": _detect_card_condition(title),
+                    })
+                    new_items += 1
+
+                except (KeyError, IndexError, ValueError) as e:
+                    logger.debug(f"Skipping item due to parse error: {e}")
+                    continue
+
+            logger.info(f"eBay API page {page_num}: {new_items} new items (total: {len(results)})")
+
+            if page_num >= total_pages:
+                break
+
+    logger.info(f"eBay API scrape complete: {len(results)} sold listings for '{query}'")
+    return results
+
+
 async def scrape_completed_listings(query: str, max_pages: int = 5) -> List[Dict]:
     """
     Fetch eBay completed/sold listings.
-    Uses ScraperAPI when SCRAPERAPI_KEY env var is set (production),
-    falls back to Playwright otherwise (local dev).
+    Priority: eBay Finding API → ScraperAPI → Playwright (local dev fallback).
     """
-    if SCRAPERAPI_KEY:
+    if EBAY_APP_ID:
+        logger.info("Using eBay Finding API for scraping")
+        return await _scrape_via_ebay_api(query, max_pages)
+    elif SCRAPERAPI_KEY:
         logger.info("Using ScraperAPI for scraping")
         return await _scrape_via_scraperapi(query, max_pages)
     else:
-        logger.info("Using Playwright for scraping (no SCRAPERAPI_KEY set)")
+        logger.info("Using Playwright for scraping (no API keys set)")
         return await _scrape_via_playwright(query, max_pages)
