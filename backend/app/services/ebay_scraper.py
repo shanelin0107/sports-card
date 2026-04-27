@@ -559,15 +559,12 @@ async def _scrape_via_ebay_api(query: str, max_pages: int) -> List[Dict]:
     return results
 
 
-async def scrape_completed_listings(query: str, max_pages: int = 5) -> List[Dict]:
+async def scrape_completed_listings(query: str, max_pages: int = 3) -> List[Dict]:
     """
     Fetch eBay completed/sold listings.
     Priority: eBay Finding API → ScraperAPI → Playwright (local dev fallback).
     """
-    if CLOUDFLARE_WORKER_URL:
-        logger.info("Using Cloudflare Worker proxy for scraping")
-        return await _scrape_via_cloudflare_worker(query, max_pages)
-    elif EBAY_APP_ID:
+    if EBAY_APP_ID:
         logger.info("Using eBay Finding API for scraping")
         return await _scrape_via_ebay_api(query, max_pages)
     elif SCRAPERAPI_KEY:
