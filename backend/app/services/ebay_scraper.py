@@ -432,7 +432,9 @@ async def _scrape_via_ebay_api(query: str, max_pages: int) -> List[Dict]:
 
             try:
                 resp = await client.get(url)
-                resp.raise_for_status()
+                if resp.status_code != 200:
+                    logger.warning(f"eBay API page {page_num} HTTP {resp.status_code}: {resp.text[:600]}")
+                    break
                 data = resp.json()
             except Exception as e:
                 logger.warning(f"eBay API page {page_num} error: {e}")
