@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY")
 EBAY_APP_ID = os.environ.get("EBAY_APP_ID")
+CLOUDFLARE_WORKER_URL = os.environ.get("CLOUDFLARE_WORKER_URL")
 
 # eBay category: Sports Trading Cards & Accessories
 SPORTS_CARDS_CATEGORY = "261328"
@@ -402,6 +403,51 @@ async def _scrape_via_playwright(query: str, max_pages: int) -> List[Dict]:
     return results
 
 
+async def _scrape_via_cloudflare_worker(query: str, max_pages: int) -> List[Dict]:
+    """Fetch eBay pages via Cloudflare Worker proxy (free, bypasses IP blocking)."""
+    import httpx
+
+    results: List[Dict] = []
+    seen_ids: set = set()
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        for page_num in range(1, max_pages + 1):
+            ebay_url = _build_ebay_url(query, page_num)
+            worker_url = f"{CLOUDFLARE_WORKER_URL}?url={quote_plus(ebay_url)}"
+            logger.info(f"Cloudflare Worker: fetching page {page_num} for '{query}'")
+
+            try:
+                resp = await client.get(worker_url)
+                resp.raise_for_status()
+                html = resp.text
+            except Exception as e:
+                logger.warning(f"Cloudflare Worker page {page_num} error: {e}")
+                break
+
+            raw_items = _parse_items_from_html(html)
+            logger.info(f"Page {page_num}: parsed {len(raw_items)} sold items")
+
+            page_items = [i for i in raw_items if _keywords_match(i["listing_title"], query)]
+            filtered_out = len(raw_items) - len(page_items)
+            if filtered_out:
+                logger.info(f"  Keyword filter removed {filtered_out} irrelevant items")
+
+            new_items = 0
+            for item in page_items:
+                lid = item["source_listing_id"]
+                if lid not in seen_ids:
+                    seen_ids.add(lid)
+                    results.append(item)
+                    new_items += 1
+
+            logger.info(f"Page {page_num}: {new_items} new items (total: {len(results)})")
+            if new_items == 0:
+                break
+
+    logger.info(f"Cloudflare Worker scrape complete: {len(results)} sold listings for '{query}'")
+    return results
+
+
 async def _scrape_via_ebay_api(query: str, max_pages: int) -> List[Dict]:
     """Fetch eBay completed/sold listings via the official Finding API (free)."""
     import httpx
@@ -519,7 +565,10 @@ async def scrape_completed_listings(query: str, max_pages: int = 5) -> List[Dict
     Fetch eBay completed/sold listings.
     Priority: eBay Finding API → ScraperAPI → Playwright (local dev fallback).
     """
-    if EBAY_APP_ID:
+    if CLOUDFLARE_WORKER_URL:
+        logger.info("Using Cloudflare Worker proxy for scraping")
+        return await _scrape_via_cloudflare_worker(query, max_pages)
+    elif EBAY_APP_ID:
         logger.info("Using eBay Finding API for scraping")
         return await _scrape_via_ebay_api(query, max_pages)
     elif SCRAPERAPI_KEY:
