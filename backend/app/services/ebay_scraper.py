@@ -412,8 +412,7 @@ async def _scrape_via_cloudflare_worker(query: str, max_pages: int) -> List[Dict
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         for page_num in range(1, max_pages + 1):
-            ebay_url = _build_ebay_url(query, page_num)
-            worker_url = f"{CLOUDFLARE_WORKER_URL}?url={quote_plus(ebay_url)}"
+            worker_url = f"{CLOUDFLARE_WORKER_URL}?q={quote_plus(query)}&page={page_num}"
             logger.info(f"Cloudflare Worker: fetching page {page_num} for '{query}'")
 
             try:
